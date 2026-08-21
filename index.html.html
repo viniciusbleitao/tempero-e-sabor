@@ -540,13 +540,8 @@ p{margin:0;}
       <svg class="wa-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.7.8-.8 1-.2.2-.3.2-.5.1a6.7 6.7 0 0 1-2-1.2 7.4 7.4 0 0 1-1.4-1.7c-.1-.2 0-.4.1-.5l.4-.4c.1-.2.2-.3.3-.5.1-.2 0-.4 0-.5l-.7-1.7c-.2-.4-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.2.2-.9.9-.9 2.2 0 1.3.9 2.6 1.1 2.8.1.2 1.9 3 4.7 4.1.6.3 1.1.4 1.5.5.6.2 1.2.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.2-.3-.2-.6-.4Z"/></svg>
       Enviar pedido pelo WhatsApp
     </button>
-    <button class="btn btn--dark btn--full" id="sendEmail">
-      <svg class="mail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>
-      Enviar por e-mail
-    </button>
     <span class="send-status" id="sendStatus"></span>
     <a href="#" id="waFallback" class="fallback-link" target="_blank" rel="noopener">Não abriu? Toque aqui pra ir ao WhatsApp</a>
-    <a href="#" id="emailFallback" class="fallback-link">Não abriu? Toque aqui pra ir ao e-mail</a>
   </div>
 </aside>
 
@@ -1313,7 +1308,6 @@ function renderCart(){
   cartFoot.style.display = "flex";
   const belowMin = cartTotal() < MIN_ORDER;
   document.getElementById("sendWhatsApp").classList.toggle("is-blocked", belowMin);
-  document.getElementById("sendEmail").classList.toggle("is-blocked", belowMin);
   document.getElementById("fEntrega").addEventListener("change", toggleEndereco);
   document.getElementById("fRetirada").addEventListener("change", toggleEndereco);
   wireAddressAutocomplete();
@@ -1509,7 +1503,7 @@ function validateFields(){
 }
 
 function shakeButtons(){
-  ["sendWhatsApp","sendEmail"].forEach(id => {
+  ["sendWhatsApp"].forEach(id => {
     const el = document.getElementById(id);
     el.classList.remove("is-shaking");
     void el.offsetWidth;
@@ -1558,7 +1552,7 @@ function validateOrder(){
   return true;
 }
 
-function buildOrderMessage(orderNumber){
+function buildOrderData(orderNumber){
   const nome = document.getElementById("inpNome").value.trim();
   const tel = document.getElementById("inpTel").value.trim();
   const fulfillment = document.querySelector('input[name="fulfillment"]:checked').value;
@@ -1567,28 +1561,46 @@ function buildOrderMessage(orderNumber){
   const payment = document.querySelector('input[name="payment"]:checked').value;
   const obs = document.getElementById("inpObs").value.trim();
 
-  let msg = `*NOVO PEDIDO — Tempero & Sabor*\n`;
-  msg += `*Pedido #${orderNumber}*\n\n`;
-  msg += `Cliente: ${nome}\nTelefone: ${tel}\nTipo: ${fulfillment}\n`;
-  if (fulfillment === "Entrega" && endereco){
-    msg += `Endereço: ${endereco}\n`;
-    if (complemento) msg += `Complemento: ${complemento}\n`;
-  }
-  msg += `\n— — — — — — — — —\n`;
-  cart.forEach(l => {
-    msg += `${l.qty}x ${l.name} — ${fmt(l.unitPrice*l.qty)}\n`;
-    if (l.groupsChosen && l.groupsChosen.length) l.groupsChosen.forEach(g => { msg += `   ${g.title}: ${g.value}\n`; });
-    if (l.freeChosen && l.freeChosen.length) msg += `   Adicionais: ${l.freeChosen.join(", ")}\n`;
-    if (l.extrasChosen && l.extrasChosen.length) msg += `   Extras: ${l.extrasChosen.map(e=>e.name).join(", ")}\n`;
-    if (l.note) msg += `   Instruções: ${l.note}\n`;
+  const items = cart.map(l => {
+    const mods = [];
+    if (l.groupsChosen && l.groupsChosen.length) l.groupsChosen.forEach(g => mods.push(`${g.title}: ${g.value}`));
+    if (l.freeChosen && l.freeChosen.length) mods.push(`Adicionais: ${l.freeChosen.join(", ")}`);
+    if (l.extrasChosen && l.extrasChosen.length) mods.push(`Extras: ${l.extrasChosen.map(e=>e.name).join(", ")}`);
+    if (l.note) mods.push(`Instruções: ${l.note}`);
+    return { qty: l.qty, name: l.name, unitPrice: l.unitPrice, lineTotal: l.unitPrice * l.qty, mods };
   });
-  msg += `— — — — — — — — —\n`;
+
   const subtotal = cartTotal();
   const feeApplies = fulfillment === "Entrega" && selectedDelivery && !selectedDelivery.outOfRange;
-  const deliveryFeeAmount = feeApplies ? selectedDelivery.fee : 0;
-  if (feeApplies) msg += `Taxa de entrega (≈${selectedDelivery.miles.toFixed(1)} mi): ${fmt(selectedDelivery.fee)}\n`;
-  msg += `*Total: ${fmt(subtotal + deliveryFeeAmount)}*\n\nPagamento: ${payment}\n`;
-  if (obs) msg += `Observações: ${obs}\n`;
+  const deliveryFee = feeApplies ? selectedDelivery.fee : 0;
+  const deliveryMiles = feeApplies ? Number(selectedDelivery.miles.toFixed(1)) : null;
+
+  return {
+    orderNumber, date: new Date().toISOString(),
+    customer: { nome, tel, fulfillment, endereco, complemento },
+    items, subtotal, deliveryFee, deliveryMiles, total: subtotal + deliveryFee,
+    payment, obs,
+  };
+}
+
+function buildOrderMessage(orderNumber){
+  const data = buildOrderData(orderNumber);
+  let msg = `*NOVO PEDIDO — Tempero & Sabor*\n`;
+  msg += `*Pedido #${orderNumber}*\n\n`;
+  msg += `Cliente: ${data.customer.nome}\nTelefone: ${data.customer.tel}\nTipo: ${data.customer.fulfillment}\n`;
+  if (data.customer.fulfillment === "Entrega" && data.customer.endereco){
+    msg += `Endereço: ${data.customer.endereco}\n`;
+    if (data.customer.complemento) msg += `Complemento: ${data.customer.complemento}\n`;
+  }
+  msg += `\n— — — — — — — — —\n`;
+  data.items.forEach(it => {
+    msg += `${it.qty}x ${it.name} — ${fmt(it.lineTotal)}\n`;
+    it.mods.forEach(m => { msg += `   ${m}\n`; });
+  });
+  msg += `— — — — — — — — —\n`;
+  if (data.deliveryFee) msg += `Taxa de entrega (≈${data.deliveryMiles} mi): ${fmt(data.deliveryFee)}\n`;
+  msg += `*Total: ${fmt(data.total)}*\n\nPagamento: ${data.payment}\n`;
+  if (data.obs) msg += `Observações: ${data.obs}\n`;
   return msg;
 }
 
@@ -1624,7 +1636,21 @@ document.getElementById("sendWhatsApp").addEventListener("click", async () => {
   }
   sendStatus.classList.remove("is-error");
   sendStatus.textContent = "Gerando número do pedido...";
+
   const orderNumber = await getNextOrderNumber();
+  const orderData = buildOrderData(orderNumber);
+
+  // Dispara o e-mail pro restaurante em segundo plano (pra impressão).
+  // "Fire and forget": não espera resposta e não trava o WhatsApp se falhar —
+  // o WhatsApp é o canal garantido; o e-mail é um bônus silencioso.
+  try {
+    fetch("/api/send-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(orderData),
+    }).catch(() => {});
+  } catch (err) {}
+
   const msg = buildOrderMessage(orderNumber);
   const url = `https://wa.me/${RESTAURANT_WHATSAPP}?text=${encodeURIComponent(msg)}`;
   sendStatus.textContent = `Pedido #${orderNumber} — se o WhatsApp não abrir sozinho, use o link abaixo:`;
@@ -1632,29 +1658,6 @@ document.getElementById("sendWhatsApp").addEventListener("click", async () => {
   waFallback.href = url;
   waFallback.classList.add("is-visible");
   window.location.href = url;
-});
-
-document.getElementById("sendEmail").addEventListener("click", async () => {
-  if (!validateOrder()) return;
-  if (!validateFields()){
-    sendStatus.classList.add("is-error");
-    sendStatus.textContent = "Preencha nome e telefone pra continuar.";
-    shakeButtons();
-    document.getElementById("inpNome").scrollIntoView({behavior:"smooth", block:"center"});
-    return;
-  }
-  sendStatus.classList.remove("is-error");
-  sendStatus.textContent = "Gerando número do pedido...";
-  const orderNumber = await getNextOrderNumber();
-  const msg = buildOrderMessage(orderNumber);
-  const subject = encodeURIComponent(`Novo pedido #${orderNumber} — Tempero & Sabor`);
-  const body = encodeURIComponent(msg);
-  const mailUrl = `mailto:${RESTAURANT_EMAIL}?subject=${subject}&body=${body}`;
-  sendStatus.textContent = `Pedido #${orderNumber} — se o e-mail não abrir sozinho, use o link abaixo:`;
-  const emailFallback = document.getElementById("emailFallback");
-  emailFallback.href = mailUrl;
-  emailFallback.classList.add("is-visible");
-  window.location.href = mailUrl;
 });
 </script>
 </body>
